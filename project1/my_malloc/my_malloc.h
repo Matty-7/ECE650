@@ -7,7 +7,7 @@ typedef struct block_meta {
     size_t size;
     struct block_meta *next;
     int free;
-    int magic;
+    int magic; // to check if the block is valid
 } block_meta_t;
 
 void* ff_malloc(size_t size);

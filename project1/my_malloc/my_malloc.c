@@ -23,6 +23,27 @@ block_meta_t *find_free_block(block_meta_t **last, size_t size) {
     return current;
 }
 
+// best fit search
+block_meta_t *find_free_block_bf(block_meta_t **last, size_t size) {
+    block_meta_t *current = global_base;
+    block_meta_t *best_fit = NULL;
+    size_t smallest_diff = SIZE_MAX;
+
+    while (current) {
+        if (current->free && current->size >= size) {
+            size_t diff = current->size - size;
+            if (diff < smallest_diff) {
+                smallest_diff = diff;
+                best_fit = current;
+                if (diff == 0) break;
+            }
+        }
+        *last = current;
+        current = current->next;
+    }
+    return best_fit;
+}
+
 // request more memory from the system for the heap
 block_meta_t *request_space(block_meta_t * last, size_t size) {
     block_meta_t * block;
@@ -43,39 +64,20 @@ block_meta_t *request_space(block_meta_t * last, size_t size) {
     return block;
 }
 
-// first fit malloc
-void *ff_malloc(size_t size) {
-    if (size <= 0) return NULL;
-    block_meta_t *block;
+// split the block if it is larger than the requested size
+void split_block(block_meta_t *block, size_t size) {
+    if (block->size >= size + sizeof(block_meta_t) + 8) {
+        block_meta_t *new_block = (block_meta_t*)((char*)block + sizeof(block_meta_t) + size);
+        new_block->size = block->size - size - sizeof(block_meta_t);
+        new_block->free = 1;
+        new_block->next = block->next;
+        new_block->magic = 0x12345678;
 
-    if (global_base == NULL) {
-        block = request_space(NULL, size);
-        if (block == NULL) return NULL;
-        global_base = block;
-    } else {
-        block_meta_t *last = global_base;
-        block = find_free_block(&last, size);
-        if (block != NULL) {
-            block = request_space(last, size);
-            if (block == NULL) return NULL;
-        } else {
-            block->free = 0;
-            if (block->size >= size + sizeof(block_meta_t) + 8) {
-                block_meta_t *new_block = (block_meta_t*)((char*)block + sizeof(block_meta_t) + size);
-                new_block->size = block->size - size - sizeof(block_meta_t);
-                new_block->free = 1;
-                new_block->next = block->next;
-                new_block->magic = 0x12345678;
+        block->size = size;
+        block->next = new_block;
 
-                block->size = size;
-                block->next = new_block;
-
-                total_free_size += new_block->size;
-            }
-        }
+        total_free_size += new_block->size;
     }
-
-    return (block + 1);
 }
 
 // coalesce free blocks that are next to each other
@@ -91,7 +93,50 @@ void coalesce() {
     }
 }
 
-// first fit free
+void *ff_malloc(size_t size) {
+    if (size <= 0) return NULL;
+    
+    block_meta_t *block;
+    if (global_base == NULL) {
+        block = request_space(NULL, size);
+        if (!block) return NULL;
+        global_base = block;
+    } else {
+        block_meta_t *last = global_base;
+        block = find_free_block_ff(&last, size);
+        if (!block) {
+            block = request_space(last, size);
+            if (!block) return NULL;
+        } else {
+            block->free = 0;
+            split_block(block, size);
+        }
+    }
+    return (block + 1);
+}
+
+void *bf_malloc(size_t size) {
+    if (size <= 0) return NULL;
+
+    block_meta_t *block;
+    if (global_base == NULL) {
+        block = request_space(NULL, size);
+        if (!block) return NULL;
+        global_base = block;
+    } else {
+        block_meta_t *last = global_base;
+        block = find_free_block_bf(&last, size);
+        if (!block) {
+            block = request_space(last, size);
+            if (!block) return NULL;
+        } else {
+            block->free = 0;
+            split_block(block, size);
+        }
+    }
+    return (block + 1);
+}
+
 void ff_free(void *ptr) {
     if (!ptr) return;
 
@@ -102,6 +147,10 @@ void ff_free(void *ptr) {
     total_free_size += block_ptr->size;
 
     coalesce();
+}
+
+void bf_free(void *ptr) {
+    ff_free(ptr);
 }
 
 unsigned long get_data_segment_size() {
