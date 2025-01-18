@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <sys/time.h> // I added this
 #include "my_malloc.h"
 
 #define NUM_ITERS    10000
