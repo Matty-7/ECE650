@@ -1,5 +1,6 @@
-#include <unistd.h>
 #include "my_malloc.h"
+#include <unistd.h>
+#include <stdint.h>
 
 static block_meta_t *global_base = NULL; // the head of the linked list of memory blocks
 
@@ -10,11 +11,11 @@ static unsigned long total_free_size = 0;
 // get access to the meta data of a memory block
 
 block_meta_t *get_block_ptr(void *ptr) {
-    return (block_meta_t*)(char*)ptr - sizeof(block_meta_t);
+    return (block_meta_t*)((char*)ptr - sizeof(block_meta_t));
 }
 
 // find the appropriate free block for the allocation (first fit)
-block_meta_t *find_free_block(block_meta_t **last, size_t size) {
+block_meta_t *find_free_block_ff(block_meta_t **last, size_t size) {
     block_meta_t *current = global_base;
     while (current && !(current->free && current->size >= size)) {
         *last = current;
