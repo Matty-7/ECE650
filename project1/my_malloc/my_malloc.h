@@ -4,10 +4,9 @@
 #include <stddef.h>
 
 typedef struct block_meta {
-    size_t size;
+    size_t size; // does not include the size of the meta data
     struct block_meta *next;
     int free;
-    int magic; // to check if the block is valid
 } block_meta_t;
 
 void* ff_malloc(size_t size);
