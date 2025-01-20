@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "my_malloc.h"
 
-// 分配 A, B, C，释放 B，再释放 A，看是否与 B 合并，再释放 C，检查最后能否合并成一个 free 块
+// assign 3 blocks, free 2 blocks, check if they are merged
 
 int main() {
     void *A = ff_malloc(64);
@@ -9,13 +9,13 @@ int main() {
     void *C = ff_malloc(64);
 
     ff_free(B);
-    ff_free(A);   // A 和 B 应该合并
-    ff_free(C);   // C 应该继续与上面的大块再合并
+    ff_free(A);   // A and B are merged
+    ff_free(C);   // C should be merged with the large block
 
     unsigned long total = get_data_segment_size();
     unsigned long free_ = get_data_segment_free_space_size();
 
-    // 若都合并成功，那么 free_ 应该几乎等于 total
+    // if coalesce is successful, free_ should be almost equal to total
     if (free_ + 16 < total) {
         printf("FAIL: coalesce not working properly.\n");
         return -1;

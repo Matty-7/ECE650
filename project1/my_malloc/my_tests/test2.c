@@ -2,6 +2,7 @@
 #include <string.h>
 #include "my_malloc.h"
 
+// multiple block malloc/free
 int main() {
     void *p1 = ff_malloc(50), *p2 = ff_malloc(200), *p3 = ff_malloc(80);
     if (!p1 || !p2 || !p3) {

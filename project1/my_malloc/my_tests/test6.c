@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "my_malloc.h"
 
+// multiple malloc/free cycles
 int main() {
     for (int round=0; round<5; round++) {
         void* arr[10];

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "my_malloc.h"
 
+// random small allocs/frees
 int main() {
     srand(0);
     void* arr[100];

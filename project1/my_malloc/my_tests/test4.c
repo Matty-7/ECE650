@@ -2,7 +2,7 @@
 #include <string.h>
 #include "my_malloc.h"
 
-// 分配大块再 free，然后再分配一个小块，检查是否会 split
+// allocate a large block, then free it, then allocate a small block, check if it is split
 
 int main() {
     void *p = ff_malloc(200);
@@ -12,7 +12,7 @@ int main() {
     }
     ff_free(p);
 
-    // 分配一个小块 50，看是否 split 原先 200 的大块
+    // allocate a small block 50, check if it is split from the large block 200
     void *q = ff_malloc(50);
     if (!q) {
         printf("FAIL: second alloc failed.\n");

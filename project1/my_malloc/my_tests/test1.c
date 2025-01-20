@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "my_malloc.h"
 
+// single malloc/free
 int main() {
     void* p = ff_malloc(100);
     if (!p) {

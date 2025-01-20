@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "my_malloc.h"
 
+// repeated same-size alloc/free
 int main(){
     for(int i=0; i<1000; i++){
         void* p = ff_malloc(128);
