@@ -10,21 +10,21 @@ static block_meta_t *global_last = NULL;  // Tail pointer (for appending blocks 
 static unsigned long total_size = 0;
 static unsigned long total_free_size = 0;
 
-
-static block_meta_t *get_block_ptr(void *ptr) {
-    return (block_meta_t*)((char*)ptr - sizeof(block_meta_t));
-}
-
-
 static block_meta_t* request_space(block_meta_t* last, size_t size);
 static void split_block(block_meta_t* block, size_t size);
 static void coalesce_block(block_meta_t* block);
+static size_t align8(size_t size);
 
 // first fit
 static block_meta_t* find_free_block_ff(size_t size);
 // best fit
 static block_meta_t* find_free_block_bf(size_t size);
 
+static block_meta_t *last_alloc = NULL; 
+
+static block_meta_t *get_block_ptr(void *ptr) {
+    return (block_meta_t*)((char*)ptr - sizeof(block_meta_t));
+}
 
 unsigned long get_data_segment_size() {
     return total_size;
@@ -34,7 +34,9 @@ unsigned long get_data_segment_free_space_size() {
     return total_free_size;
 }
 
-static block_meta_t *last_alloc = NULL; 
+static size_t align8(size_t size) {
+    return (size + 7) & ~((size_t)7);
+}
 
 static block_meta_t* find_free_block_ff(size_t size) {
     // search from last_alloc
@@ -187,6 +189,8 @@ void* ff_malloc(size_t size) {
         return NULL;
     }
 
+    size = align8(size);
+
     // search for free block in the list
     block_meta_t* block = find_free_block_ff(size);
     if (!block) {
@@ -226,6 +230,8 @@ void* bf_malloc(size_t size) {
     if (size == 0) {
         return NULL;
     }
+
+    size = align8(size);
 
     block_meta_t* block = find_free_block_bf(size);
     if (!block) {
