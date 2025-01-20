@@ -66,7 +66,7 @@ static block_meta_t* find_free_block_ff(size_t size) {
 static block_meta_t* find_free_block_bf(size_t size) {
     block_meta_t *current = global_base;
     block_meta_t *best_fit = NULL;
-    size_t smallest_diff = (size_t)-1;  // or SIZE_MAX
+    size_t smallest_diff = (size_t)-1;
 
     while (current) {
         if (current->free && current->size >= size) {
@@ -75,7 +75,7 @@ static block_meta_t* find_free_block_bf(size_t size) {
                 smallest_diff = diff;
                 best_fit = current;
                 if (diff == 0) {
-                    // perfect match
+                    
                     return best_fit;
                 }
             }
@@ -152,14 +152,13 @@ static void coalesce_block(block_meta_t* block) {
         block->size += (next_block->size + sizeof(block_meta_t));
 
         // adjust free space count
-        total_free_size -= sizeof(block_meta_t);
+        // total_free_size -= sizeof(block_meta_t);
 
         // remove next_block from list
         block->next = next_block->next;
         if (block->next) {
             block->next->prev = block;
         } else {
-            // if no next block, block is the tail, update global_last
             global_last = block;
         }
     }
@@ -170,7 +169,7 @@ static void coalesce_block(block_meta_t* block) {
         prev_block->size += (block->size + sizeof(block_meta_t));
 
         // update free space count and remove block from list
-        total_free_size -= sizeof(block_meta_t);
+        // total_free_size -= sizeof(block_meta_t);
 
         // remove block from list
         prev_block->next = block->next;
