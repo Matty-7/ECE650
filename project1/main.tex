@@ -1,0 +1,111 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{amsmath,amssymb}
+\usepackage{courier}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks  = true,
+    urlcolor    = blue,
+    linkcolor   = blue,
+    citecolor   = blue
+}
+
+\lstset{
+  basicstyle=\footnotesize\ttfamily,
+  breaklines=true,
+  columns=flexible
+}
+
+\begin{document}
+\title{\textbf{ECE 650 Project \#1 Report: Malloc Library}}
+\author{Jingheng Huan}
+\date{\today}
+\maketitle
+
+\begin{abstract}
+This report documents my implementation of a custom memory allocation library in C, providing both a \texttt{First Fit} and \texttt{Best Fit} approach. I describe the data structures used, highlight performance issues encountered, and present final test results. Despite passing local tests, my submission on Gradescope scored 29 out of 54, suggesting there may still be corner cases or hidden tests not yet handled.
+\end{abstract}
+
+\section{Introduction}
+The goal of this project is to implement a simplified version of \texttt{malloc} and \texttt{free} using two allocation policies: \textbf{First Fit} (\texttt{ff\_malloc/ff\_free}) and \textbf{Best Fit} (\texttt{bf\_malloc/bf\_free}). Additionally, the assignment requires \emph{splitting} large free blocks and \emph{coalescing} adjacent free blocks to reduce fragmentation. Two helper functions, \texttt{get\_data\_segment\_size} and \texttt{get\_data\_segment\_free\_space\_size}, were also implemented to measure heap usage and fragmentation.
+
+\section{Initial Implementation with Singly Linked List}
+\subsection{Data Structure}
+My first approach used a single linked list to track both allocated and free blocks. Each block kept:
+\begin{itemize}
+    \item \texttt{size} (the payload size, in bytes),
+    \item \texttt{free} (boolean flag),
+    \item \texttt{next} (pointer to the next block).
+\end{itemize}
+On \texttt{malloc}, I performed a linear scan from the head of the list to find a suitable free block. On \texttt{free}, the block was marked as free; then I performed a full-list scan to coalesce adjacent blocks.
+
+\subsection{Performance Issues}
+When I tested this version with the provided \texttt{alloc\_policy\_tests}:
+\begin{itemize}
+    \item \textbf{small\_range\_rand\_allocs} took about \textbf{255 seconds}.
+    \item \textbf{large\_range\_rand\_allocs} took about \textbf{344 seconds}.
+    \item \textbf{equal\_size\_allocs} effectively \emph{never} finished within a reasonable time.
+\end{itemize}
+The linear scan in \texttt{malloc} and the full traversal in \texttt{free} for coalescing caused a massive slowdown, especially when numerous allocations were present.
+
+\section{Refining to a Doubly Linked List \& Local Coalescing}
+\subsection{Doubly Linked List and Local Coalescing}
+To reduce the overhead of scanning the entire list, I switched to a \emph{doubly linked list}. This allowed me to coalesce \emph{locally} in \texttt{free}: only merge a just-freed block with its immediate predecessor or successor if they are free. As a result, I no longer had to traverse from the list head every time I freed a block.
+
+After this change:
+\begin{itemize}
+    \item \textbf{small\_range\_rand\_allocs} improved from 255\,s down to around \textbf{34\,s}.
+    \item \textbf{large\_range\_rand\_allocs} improved from 344\,s to about \textbf{83\,s}.
+\end{itemize}
+However, for \texttt{equal\_size\_allocs}, I still experienced a long runtime (in fact, it appeared to stall).
+
+\section{Implementing a ``Last Allocation Pointer'' (Next Fit)}
+I added a global pointer \texttt{last\_alloc} to record the position of the last block found by the First Fit search. Instead of always starting from the head of the free list, I begin the search from \texttt{last\_alloc} to speed up repeated allocation. This change ensures we do not scan the entire list from the beginning whenever we do a \texttt{malloc}.
+
+With that optimization in place:
+\begin{itemize}
+    \item \textbf{equal\_size\_allocs} completed in under \textbf{3\,seconds},
+    \item \textbf{small\_range\_rand\_allocs} also dropped to around \textbf{2\,seconds}, 
+    \item \textbf{large\_range\_rand\_allocs} to about \textbf{3\,seconds}.
+\end{itemize}
+Hence the performance is finally acceptable for all three provided test programs.
+
+\section{Debugging Coalescing Logic}
+Upon writing additional 12 local tests of my own, I noticed that the coalescing logic caused incorrect fragmentation calculations. Specifically, I had:
+\begin{lstlisting}[language=C]
+total_free_size -= sizeof(block_meta_t);
+\end{lstlisting}
+within the coalescing routine. Because \texttt{free()} already adds the block’s metadata space to \texttt{total\_free\_size}, subtracting \texttt{sizeof(block\_meta\_t)} again during coalescing artificially reduces the reported free space. Removing those lines let me pass all local coalescing tests.
+
+Despite passing all local tests (including correctness, coalescing, and performance checks), I still only achieved \textbf{29/54} on Gradescope. This outcome suggests there might be additional hidden or corner test cases in the grader that my code does not fully satisfy. 
+
+\section{Conclusion and Future Work}
+I have implemented:
+\begin{itemize}
+    \item \textbf{First Fit} and \textbf{Best Fit} policies,
+    \item A doubly linked list with local coalescing,
+    \item A \texttt{last\_alloc} pointer to reduce repeated scanning overhead,
+    \item Comprehensive local tests that check splitting, merging, zero-size \texttt{malloc}, and random allocations.
+\end{itemize}
+The performance improved significantly:
+\begin{itemize}
+    \item \texttt{equal\_size\_allocs} from ‘‘no finish’’ to about 1--2\,seconds,
+    \item \texttt{small\_range\_rand\_allocs} from 255\,s to around 2\,s,
+    \item \texttt{large\_range\_rand\_allocs} from 344\,s to around 3\,s.
+\end{itemize}
+
+However, my Gradescope score remains at 29/54. I suspect certain boundary cases (e.g.\ alignment issues, or internal tracking not matching the grader’s expectations) are unaddressed. Further debugging, plus possibly ensuring proper alignment or other subtle details, might be needed to achieve full marks on the official tests.
+
+\vspace{6pt}
+\noindent \textbf{Possible Next Steps:}
+\begin{itemize}
+    \item More rigorous checks on alignment to 8 or 16 bytes (even though not strictly required).
+    \item Handling or skipping blocks more intelligently for Best Fit to avoid excessive scanning.
+    \item Confirming corner cases with extremely large allocations (close to system limits).
+    \item Investigating whether \texttt{last\_alloc} might need resetting after certain merges or splits.
+\end{itemize}
+
+\end{document}
