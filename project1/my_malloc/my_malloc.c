@@ -362,4 +362,3 @@ void* ff_malloc(size_t size) {
 void ff_free(void* ptr) {
     bf_free(ptr);
 }
-
