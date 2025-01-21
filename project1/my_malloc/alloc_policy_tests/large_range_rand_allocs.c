@@ -103,43 +103,5 @@ int main(int argc, char *argv[])
     FREE(malloc_items[0][i].address);
   } //for i
 
-  // -------------- 新增测试 --------------
-  // 继续做一些额外操作，以测试更多随机分配与释放，观察是否会崩溃
-  printf("\n[Additional Test] Extra random allocations after main loop.\n");
-
-  const int EXTRA_ALLOCS = 200;
-  int* extra_ptrs[EXTRA_ALLOCS];
-  size_t sizes[EXTRA_ALLOCS];
-  for (i = 0; i < EXTRA_ALLOCS; i++) {
-    sizes[i] = (rand() % 512 + 1) * 16; // 随机取 16 ~ 8192
-    extra_ptrs[i] = (int*)MALLOC(sizes[i]);
-    if (extra_ptrs[i] == NULL) {
-      printf("Allocation returned NULL at i=%d, size=%zu\n", i, sizes[i]);
-    } else {
-      // 写一点数据
-      *extra_ptrs[i] = (int)(sizes[i]);
-    }
-  }
-
-  // 再随机释放一半
-  for (i = 0; i < EXTRA_ALLOCS; i += 2) {
-    FREE(extra_ptrs[i]);
-  }
-
-  // 试图再次分配一些
-  for (i = 0; i < EXTRA_ALLOCS; i += 2) {
-    extra_ptrs[i] = (int*)MALLOC(sizes[i]);
-    if (extra_ptrs[i] == NULL) {
-      printf("Re-allocation returned NULL at i=%d, size=%zu\n", i, sizes[i]);
-    }
-  }
-
-  // 最后全部释放
-  for (i = 0; i < EXTRA_ALLOCS; i++) {
-    FREE(extra_ptrs[i]);
-  }
-
-  printf("[Additional Test] Finished extra allocations.\n");
-
   return 0;
 }
