@@ -1,267 +1,218 @@
 #include "my_malloc.h"
+#include <unistd.h>
 #include <assert.h>
-#include <unistd.h>    // for sbrk
-#include <string.h>    // for NULL
-#include <stdio.h>
 
-#define ALLOC_UNIT (4096)
+// Global variables for free list and heap management
+static Block* free_list_head = NULL;
+static Block* heap_tail = NULL;
+static unsigned long total_data_segment_size = 0;
+static long long total_free_space_size = 0;
 
-typedef struct block_t {
-    size_t size;           
-    int is_free;
-    struct block_t* next_physical;
-    struct block_t* prev_physical;
-
-    struct block_t* next_free;
-    struct block_t* prev_free;
-} block_t;
-
-static block_t* free_list_head = NULL;
-
-static block_t* heap_tail = NULL;
-
-static unsigned long data_segment_size = 0;
-static unsigned long data_segment_free_space_size = 0; 
-
-static void* allocate_memory(size_t size, block_t* (*find_strategy)(size_t));
-static block_t* extend_heap(size_t size);
-static block_t* split_block(block_t* block, size_t size);
-static void merge_free_blocks(block_t* block);
-static void free_list_insert(block_t* block);
-static void free_list_remove(block_t* block);
-static block_t* find_first_fit(size_t size);
-static block_t* find_best_fit(size_t size);
-static size_t align8(size_t size);
-
-
-// FF
-void *ff_malloc(size_t size) {
-    return allocate_memory(size, find_first_fit);
-}
-void ff_free(void *ptr) {
-    if (!ptr) return;
-    block_t* block = (block_t*)((char*)ptr - sizeof(block_t));
-    if (block->is_free) {
-        
-        return;
-    }
-    block->is_free = 1;
-    data_segment_free_space_size += (block->size + sizeof(block_t));
-    // according to the address order
-    free_list_insert(block);
-    merge_free_blocks(block);
+// First Fit malloc implementation
+void* ff_malloc(size_t size) {
+    return internal_malloc(size, find_first_fit);
 }
 
-// BF
-void *bf_malloc(size_t size) {
-    return allocate_memory(size, find_best_fit);
-}
-void bf_free(void *ptr) {
-    ff_free(ptr); 
+// First Fit free implementation
+void ff_free(void* ptr) {
+    internal_free(ptr);
 }
 
+// Best Fit malloc implementation
+void* bf_malloc(size_t size) {
+    return internal_malloc(size, find_best_fit);
+}
+
+// Best Fit free implementation
+void bf_free(void* ptr) {
+    internal_free(ptr);
+}
+
+// Returns the total size of the data segment
 unsigned long get_data_segment_size() {
-    return data_segment_size;
-}
-unsigned long get_data_segment_free_space_size() { 
-    return data_segment_free_space_size;
+    return total_data_segment_size;
 }
 
-static void* allocate_memory(size_t size, block_t* (*find_strategy)(size_t)) {
-    if (size == 0) return NULL;
-    size = align8(size);
+// Returns the total free space in the data segment
+long long get_data_segment_free_space_size() {
+    return total_free_space_size;
+}
 
-    if (free_list_head) {
-        block_t* block = find_strategy(size);
-        if (block) {
-            free_list_remove(block); // block->is_free=0
-            if (block->size >= size + sizeof(block_t) + 8) {
-                block_t* new_free = split_block(block, size);
-                free_list_insert(new_free);
+// Internal malloc function that uses a specified block finding strategy
+void* internal_malloc(size_t size, find_block_func_t find_block) {
+    if (size == 0) {
+        return NULL;
+    }
+
+    Block* suitable_block = find_block(size);
+
+    if (suitable_block) {
+        if (suitable_block->size >= size + sizeof(Block) + 1) { // Ensure there's space to split
+            split_block(suitable_block, size);
+        }
+        remove_from_free_list(suitable_block);
+        suitable_block->is_free = 0;
+        total_free_space_size -= (suitable_block->size + sizeof(Block));
+        return (void*)(suitable_block + 1);
+    }
+
+    // No suitable block found; request more memory from the heap
+    Block* new_block = request_memory_from_heap(size);
+    if (!new_block) {
+        return NULL;
+    }
+    return (void*)(new_block + 1);
+}
+
+// Internal free function
+void internal_free(void* ptr) {
+    if (!ptr) {
+        return;
+    }
+
+    Block* block = ((Block*)ptr) - 1;
+    block->is_free = 1;
+    add_to_free_list(block);
+    total_free_space_size += (block->size + sizeof(Block));
+    merge_blocks(block);
+}
+
+// Find the first free block that fits the requested size
+Block* find_first_fit(size_t size) {
+    Block* current = free_list_head;
+    while (current) {
+        if (current->size >= size) {
+            return current;
+        }
+        current = current->next_free;
+    }
+    return NULL;
+}
+
+// Find the best free block that fits the requested size
+Block* find_best_fit(size_t size) {
+    Block* current = free_list_head;
+    Block* best = NULL;
+    while (current) {
+        if (current->size >= size) {
+            if (!best || current->size < best->size) {
+                best = current;
+                if (best->size == size) { // Perfect fit
+                    break;
+                }
             }
-            return (char*)block + sizeof(block_t);
         }
+        current = current->next_free;
     }
-
-    block_t* new_block = extend_heap(size);
-    if (!new_block) return NULL; 
-    return (char*)new_block + sizeof(block_t);
+    return best;
 }
 
-static block_t* extend_heap(size_t size) {
-    size_t ask = size + sizeof(block_t);
-    if (ask < ALLOC_UNIT) ask = ALLOC_UNIT;
+// Request memory from the heap using sbrk
+Block* request_memory_from_heap(size_t size) {
+    size_t total_size = size + sizeof(Block);
+    void* ptr = sbrk(total_size);
+    if (ptr == (void*)-1) {
+        return NULL;
+    }
 
-    void* ptr = sbrk(ask);
-    if (ptr == (void*)-1) return NULL;
+    total_data_segment_size += total_size;
 
-    data_segment_size += ask;
+    Block* new_block = (Block*)ptr;
+    new_block->size = size;
+    new_block->is_free = 0;
+    new_block->next_phys = NULL;
+    new_block->prev_phys = heap_tail;
+    new_block->next_free = NULL;
+    new_block->prev_free = NULL;
 
-    block_t* block = (block_t*)ptr;
-    block->size   = size;
-    block->is_free = 0;
-    block->prev_free = heap_tail;
-    block->next_free = NULL;
-    block->prev_physical = heap_tail;
-    block->next_physical = NULL;
     if (heap_tail) {
-        heap_tail->next_physical = block;
+        heap_tail->next_phys = new_block;
     }
-    heap_tail = block;
+    heap_tail = new_block;
 
-    size_t leftover = ask - sizeof(block_t) - size;
-    if (leftover >= sizeof(block_t) + 8) {
-        block_t* new_free = (block_t*)((char*)block + sizeof(block_t) + size);
-        new_free->size = leftover - sizeof(block_t);
-        new_free->is_free = 1;
-        new_free->prev_free = new_free->next_free = NULL;
-        new_free->prev_physical = block;
-        new_free->next_physical = NULL;
-
-        heap_tail = new_free;   
-        block->next_physical = new_free;
-
-        data_segment_free_space_size += (new_free->size + sizeof(block_t));
-
-        free_list_insert(new_free);
-    }
-    return block;
+    return new_block;
 }
 
-// split block: the block (allocated) is reduced to size, and the new free block is inserted at the end of the block
-static block_t* split_block(block_t* block, size_t size) {
-    char* split_addr = (char*)block + sizeof(block_t) + size;
-    block_t* new_free = (block_t*)split_addr;
-
-    new_free->size   = block->size - size - sizeof(block_t);
-    new_free->is_free = 1;
-    new_free->prev_free = new_free->next_free = NULL;
-
-    new_free->prev_physical = block;
-    new_free->next_physical = block->next_physical;
-    if (new_free->next_physical) {
-        new_free->next_physical->prev_physical = new_free;
-    } else {
-        if (block == heap_tail) {
-            heap_tail = new_free;
-        }
-    }
-    block->next_physical = new_free;
-
-    block->size = size;
-
-    return new_free;
-}
-
-// merge block with its adjacent free block
-static void merge_free_blocks(block_t* block) {
-    block_t* right = block->next_physical;
-    if (right && right->is_free) {
-        
-        free_list_remove(right);
-        
-        block->size += (sizeof(block_t) + right->size);
-        block->next_physical = right->next_physical;
-        if (right->next_physical) {
-            right->next_physical->prev_physical = block;
-        } else {
-            heap_tail = block; // right was the tail
-        }
-    }
-
-    // 2) check left neighbor
-    block_t* left = block->prev_physical;
-    if (left && left->is_free) {
-        free_list_remove(block);
-        left->size += (sizeof(block_t) + block->size);
-        left->next_physical = block->next_physical;
-        if (block->next_physical) {
-            block->next_physical->prev_physical = left;
-        } else {
-            heap_tail = left;
-        }
-        block = left;
-    }
-}
-
-// insert block into free list according to the address order
-static void free_list_insert(block_t* block) {
-    if (!free_list_head) {
-        block->next_free = block->prev_free = NULL;
-        free_list_head = block;
-        return;
-    }
-    if (block < free_list_head) {
-        block->next_free = free_list_head;
-        block->prev_free = NULL;
+// Add a block to the front of the free list
+void add_to_free_list(Block* block) {
+    block->next_free = free_list_head;
+    block->prev_free = NULL;
+    if (free_list_head) {
         free_list_head->prev_free = block;
-        free_list_head = block;
-        return;
     }
-    block_t* cur = free_list_head;
-    while (cur->next_free && cur->next_free < block) {
-        cur = cur->next_free;
-    }
-    block->next_free = cur->next_free;
-    block->prev_free = cur;
-    if (cur->next_free) {
-        cur->next_free->prev_free = block;
-    }
-    cur->next_free = block;
+    free_list_head = block;
 }
 
-// remove block from free list
-static void free_list_remove(block_t* block) {
-    if (!block->is_free) {
-        return;
-    }
-    data_segment_free_space_size -= (block->size + sizeof(block_t));
-    block->is_free = 0;
-
-    // fix list pointers
+// Remove a block from the free list
+void remove_from_free_list(Block* block) {
     if (block->prev_free) {
         block->prev_free->next_free = block->next_free;
     } else {
         free_list_head = block->next_free;
     }
+
     if (block->next_free) {
         block->next_free->prev_free = block->prev_free;
     }
-    block->next_free = block->prev_free = NULL;
+
+    block->next_free = NULL;
+    block->prev_free = NULL;
 }
 
-// first-fit: find the first free block that is large enough
-static block_t* find_first_fit(size_t size) {
-    block_t* cur = free_list_head;
-    while (cur) {
-        if (cur->size >= size) {
-            return cur;
+// Merge adjacent free blocks
+void merge_blocks(Block* block) {
+    // Merge with next physical block if it's free
+    if (block->next_phys && block->next_phys->is_free) {
+        Block* next_block = block->next_phys;
+        remove_from_free_list(next_block);
+        block->size += sizeof(Block) + next_block->size;
+        block->next_phys = next_block->next_phys;
+        if (next_block->next_phys) {
+            next_block->next_phys->prev_phys = block;
+        } else {
+            heap_tail = block;
         }
-        cur = cur->next_free;
     }
-    return NULL;
-}
 
-// best-fit: find the smallest free block that is large enough
-static block_t* find_best_fit(size_t size) {
-    block_t* best = NULL;
-    block_t* cur = free_list_head;
-    while (cur) {
-        if (cur->size >= size) {
-            if (!best || cur->size < best->size) {
-                best = cur;
-                if (cur->size == size) {
-                    return cur;
-                }
-            }
+    // Merge with previous physical block if it's free
+    if (block->prev_phys && block->prev_phys->is_free) {
+        Block* prev_block = block->prev_phys;
+        remove_from_free_list(prev_block);
+        prev_block->size += sizeof(Block) + block->size;
+        prev_block->next_phys = block->next_phys;
+        if (block->next_phys) {
+            block->next_phys->prev_phys = prev_block;
+        } else {
+            heap_tail = prev_block;
         }
-        cur = cur->next_free;
+        block = prev_block;
     }
-    return best;
 }
 
-// align to 8 bytes
-static size_t align8(size_t size) {
-    return (size + 7) & ~(size_t)7;
-}
+// Split a block into two if it's significantly larger than needed
+Block* split_block(Block* block, size_t size) {
+    if (block->size < size + sizeof(Block) + 1) {
+        return block;
+    }
 
+    Block* new_block = (Block*)((char*)block + sizeof(Block) + size);
+    new_block->size = block->size - size - sizeof(Block);
+    new_block->is_free = 1;
+    new_block->next_phys = block->next_phys;
+    new_block->prev_phys = block;
+    new_block->next_free = NULL;
+    new_block->prev_free = NULL;
+
+    if (block->next_phys) {
+        block->next_phys->prev_phys = new_block;
+    } else {
+        heap_tail = new_block;
+    }
+    block->next_phys = new_block;
+    block->size = size;
+
+    add_to_free_list(new_block);
+    total_free_space_size += (new_block->size + sizeof(Block));
+
+    return new_block;
+}
