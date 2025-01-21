@@ -291,7 +291,40 @@ static void split_block(block_meta_t* block, size_t size) {
 }
 
 static void coalesce_block(block_meta_t* block) {
-    
+    if (!block) return;
+
+    block_meta_t* merged = block;
+
+
+    if (merged->prev && merged->prev->free) {
+        remove_free_block(merged->prev);
+ 
+        remove_free_block(merged);
+
+        merged->prev->size += merged->size + sizeof(block_meta_t);
+
+        merged->prev->next = merged->next;
+        if (merged->next) {
+            merged->next->prev = merged->prev;
+        }
+
+        merged = merged->prev;
+    }
+
+    if (merged->next && merged->next->free) {
+        
+        remove_free_block(merged->next);
+
+        merged->size += merged->next->size + sizeof(block_meta_t);
+
+        block_meta_t* old_next = merged->next;
+        merged->next = old_next->next;
+        if (old_next->next) {
+            old_next->next->prev = merged;
+        }
+    }
+
+    insert_free_block(merged);
 }
 
 void* bf_malloc(size_t size) {
