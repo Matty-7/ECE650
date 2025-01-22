@@ -6,7 +6,7 @@ static mem_block_t *free_list_head = NULL;
 static mem_block_t *heap_end_block = NULL;
 
 static unsigned long total_data_segment_bytes = 0;
-static long long total_free_space_bytes = 0;
+static unsigned long total_free_space_bytes = 0;
 
 void *ff_malloc(size_t size) {
     return allocate_memory(size, locate_first_fit);
@@ -28,7 +28,7 @@ unsigned long get_data_segment_size() {
     return total_data_segment_bytes;
 }
 
-long long get_data_segment_free_space_size() {
+unsigned long get_data_segment_free_space_size() {
     return total_free_space_bytes;
 }
 
@@ -156,10 +156,14 @@ static void detach_from_free_list(mem_block_t *block) {
 
 static void merge_with_neighbors(mem_block_t *block) {
     // Merge forward if the next physical neighbor is free.
-    if (block->phys_next && block->phys_next->is_free) {
+    while (block->phys_next && block->phys_next->is_free) {
         mem_block_t *next_b = block->phys_next;
+
         detach_from_free_list(next_b);
-        block->block_size += sizeof(mem_block_t) + next_b->block_size;
+
+        total_free_space_bytes -= (next_b->block_size + sizeof(mem_block_t));
+
+        block->block_size += (next_b->block_size + sizeof(mem_block_t));
         block->phys_next = next_b->phys_next;
         if (block->phys_next) {
             block->phys_next->phys_prev = block;
@@ -168,18 +172,23 @@ static void merge_with_neighbors(mem_block_t *block) {
         }
     }
 
-    // Merge backward if the previous physical neighbor is free.
-    if (block->phys_prev && block->phys_prev->is_free) {
+    // merge backward
+    while (block->phys_prev && block->phys_prev->is_free) {
         mem_block_t *prev_b = block->phys_prev;
+
         detach_from_free_list(prev_b);
-        prev_b->block_size += sizeof(mem_block_t) + block->block_size;
+
+        total_free_space_bytes -= (prev_b->block_size + sizeof(mem_block_t));
+
+        prev_b->block_size += (block->block_size + sizeof(mem_block_t));
         prev_b->phys_next = block->phys_next;
         if (block->phys_next) {
             block->phys_next->phys_prev = prev_b;
         } else {
             heap_end_block = prev_b;
         }
-        block = prev_b; // block is now merged into prev_b
+
+        block = prev_b;
     }
 }
 

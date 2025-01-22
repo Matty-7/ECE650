@@ -21,7 +21,7 @@ void *bf_malloc(size_t size);
 void bf_free(void *ptr);
 
 unsigned long get_data_segment_size();
-long long get_data_segment_free_space_size();
+unsigned long get_data_segment_free_space_size();
 
 static void *allocate_memory(size_t size, finder_func_t strategy);
 static void release_memory(void *ptr);
