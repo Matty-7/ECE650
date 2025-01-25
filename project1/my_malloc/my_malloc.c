@@ -8,26 +8,64 @@ Metadata *first_block = NULL;
 size_t data_size = 0;
 size_t free_size = 0;
 
-static void init_block(Metadata *block, size_t size, int isfree) {
+typedef enum {
+    FIRST_FIT,
+    BEST_FIT
+} AllocationStrategy;
+
+void init_block(Metadata *block, size_t size, int isfree) {
     block->size = size;
     block->isfree = isfree;
     block->next = NULL;
     block->prev = NULL;
 }
 
-void *ff_malloc(size_t requested_size) {
-    if (first_free_block != NULL) {
-        Metadata *current_block = first_free_block;
-        
-        while (current_block != NULL) {
-            if (current_block->size >= requested_size) {
-                return reuse_block(requested_size, current_block);
-            }
-            current_block = current_block->next;
+Metadata* first_fit(size_t requested_size) {
+    Metadata *current = first_free_block;
+    while (current != NULL) {
+        if (current->size >= requested_size) {
+            return current;
         }
+        current = current->next;
     }
-    
+    return NULL;
+}
+
+Metadata* best_fit(size_t requested_size) {
+    Metadata *current = first_free_block;
+    Metadata *best = NULL;
+    while (current != NULL) {
+        if (current->size >= requested_size) {
+            if (best == NULL || current->size < best->size) {
+                best = current;
+            }
+        }
+        current = current->next;
+    }
+    return best;
+}
+
+void *generic_malloc(size_t requested_size, AllocationStrategy strategy) {
+    Metadata *fit_block = NULL;
+    if (strategy == FIRST_FIT) {
+        fit_block = first_fit(requested_size);
+    } else if (strategy == BEST_FIT) {
+        fit_block = best_fit(requested_size);
+    }
+
+    if (fit_block != NULL) {
+        return reuse_block(requested_size, fit_block);
+    }
+
     return allocate_block(requested_size);
+}
+
+void *ff_malloc(size_t requested_size) {
+    return generic_malloc(requested_size, FIRST_FIT);
+}
+
+void *bf_malloc(size_t requested_size) {
+    return generic_malloc(requested_size, BEST_FIT);
 }
 
 void *reuse_block(size_t requested_size, Metadata *block) {
@@ -71,33 +109,27 @@ void *allocate_block(size_t requested_size) {
 }
 
 void add_block(Metadata *block) {
-    if (first_free_block == NULL || block < first_free_block) {
-        block->prev = NULL;
-        block->next = first_free_block;
-        
-        if (first_free_block != NULL) {
-            first_free_block->prev = block;
-        } else {
-            last_free_block = block;
-        }
-        first_free_block = block;
-        return;
-    }
-    
     Metadata *current = first_free_block;
-    
-    while (current->next != NULL && block > current->next) {
+    Metadata *prev = NULL;
+
+    while (current != NULL && block > current) {
+        prev = current;
         current = current->next;
     }
-    
-    block->prev = current;
-    block->next = current->next;
-    current->next = block;
-    
-    if (block->next != NULL) {
-        block->next->prev = block;
+
+    block->next = current;
+    block->prev = prev;
+
+    if (current != NULL) {
+        current->prev = block;
     } else {
         last_free_block = block;
+    }
+
+    if (prev == NULL) {
+        first_free_block = block;
+    } else {
+        prev->next = block;
     }
 }
 
@@ -144,28 +176,6 @@ void ff_free(void *ptr) {
         block->prev->size += sizeof(Metadata) + block->size;
         remove_block(block);
     }
-}
-
-void *bf_malloc(size_t size) {
-    Metadata *current = first_free_block;
-    Metadata *best_fit = NULL;
-    
-    while (current != NULL) {
-        if (current->size >= size) {
-            if (best_fit == NULL || current->size < best_fit->size) {
-                best_fit = current;
-            }
-            if (current->size == size) {
-                break;
-            }
-        }
-        current = current->next;
-    }
-    
-    if (best_fit != NULL) {
-        return reuse_block(size, best_fit);
-    }
-    return allocate_block(size);
 }
 
 void bf_free(void *ptr) {
