@@ -1,5 +1,6 @@
 #include "my_malloc.h"
 #include <unistd.h>
+#include <stdio.h>
 
 Metadata *first_free_block = NULL;
 Metadata *last_free_block = NULL;
@@ -177,4 +178,127 @@ unsigned long get_data_segment_size() {
 
 unsigned long get_data_segment_free_space_size() {
     return free_size;
+}
+
+// ------ Helper functions ------
+void print_free_list(void) {
+    Metadata *current = first_free_block;
+    printf("Free list:\n");
+    while (current != NULL) {
+        printf("Block at %p - Size: %zu\n", (void*)current, current->size);
+        current = current->next;
+    }
+}
+
+size_t count_free_blocks(void) {
+    size_t count = 0;
+    Metadata *current = first_free_block;
+    while (current != NULL) {
+        count++;
+        current = current->next;
+    }
+    return count;
+}
+
+int validate_heap(void) {
+    Metadata *current = first_block;
+    while (current != NULL) {
+        if (current->size == 0) {
+            return 0;
+        }
+        current = (Metadata *)((char *)current + sizeof(Metadata) + current->size);
+    }
+    return 1;
+}
+
+size_t get_allocation_count(void) {
+    size_t count = 0;
+    Metadata *current = first_block;
+    while (current != NULL) {
+        if (!current->isfree) {
+            count++;
+        }
+        current = current->next;
+    }
+    return count;
+}
+
+void log_allocation(void* ptr, size_t size) {
+    printf("Allocated %zu bytes at %p\n", size, ptr);
+}
+
+void free_all_blocks(void) {
+    Metadata *current = first_block;
+    while (current != NULL) {
+        Metadata *next = current->next;
+        current->isfree = 1;
+        current->next = NULL;
+        current->prev = NULL;
+        add_block(current);
+        current = next;
+    }
+    first_free_block = first_block;
+    last_free_block = NULL;
+    first_block = NULL;
+    free_size = data_size;
+}
+
+Metadata* find_block(void* ptr) {
+    Metadata *current = first_block;
+    while (current != NULL) {
+        if ((void *)current + sizeof(Metadata) == ptr) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+void print_allocated_blocks(void) {
+    Metadata *current = first_block;
+    printf("Allocated Blocks:\n");
+    while (current != NULL) {
+        if (!current->isfree) {
+            printf("Block at %p - Size: %zu bytes\n", (void*)current, current->size);
+        }
+        current = current->next;
+    }
+}
+
+size_t get_largest_free_block(void) {
+    Metadata *current = first_free_block;
+    size_t largest = 0;
+    while (current != NULL) {
+        if (current->size > largest) {
+            largest = current->size;
+        }
+        current = current->next;
+    }
+    return largest;
+}
+
+size_t get_total_allocated(void) {
+    Metadata *current = first_block;
+    size_t total = 0;
+    while (current != NULL) {
+        if (!current->isfree) {
+            total += current->size;
+        }
+        current = (Metadata *)((char *)current + sizeof(Metadata) + current->size);
+    }
+    return total;
+}
+
+
+void print_heap_summary(void) {
+    size_t total = get_data_segment_size();
+    size_t free_space = get_data_segment_free_space_size();
+    size_t allocated = get_total_allocated();
+    size_t largest_free = get_largest_free_block();
+
+    printf("Heap Summary:\n");
+    printf("Total Size: %zu bytes\n", total);
+    printf("Allocated: %zu bytes\n", allocated);
+    printf("Free Space: %zu bytes\n", free_space);
+    printf("Largest Free Block: %zu bytes\n", largest_free);
 }

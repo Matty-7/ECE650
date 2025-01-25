@@ -1,4 +1,3 @@
-
 #ifndef MY_MALLOC_H
 #define MY_MALLOC_H
 
@@ -26,5 +25,19 @@ void *reuse_block(size_t size, Metadata *p);
 void *allocate_block(size_t size);
 void add_block(Metadata *p);
 void remove_block(Metadata *p);
+
+void print_free_list(void);
+size_t count_free_blocks(void);
+int validate_heap(void);
+size_t get_allocation_count(void);
+void log_allocation(void* ptr, size_t size);
+
+void free_all_blocks(void);
+Metadata* find_block(void* ptr);
+
+void print_allocated_blocks(void);
+size_t get_largest_free_block(void);
+size_t get_total_allocated(void);
+void print_heap_summary(void);
 
 #endif // MY_MALLOC_H
