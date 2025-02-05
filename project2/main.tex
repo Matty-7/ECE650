@@ -1,0 +1,56 @@
+\documentclass[12pt]{article}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{booktabs}  
+\usepackage{siunitx}
+
+\geometry{
+    a4paper,
+    total={170mm,257mm},
+    left=20mm,
+    top=20mm,
+}
+
+\title{ECE 650 -- Spring 2025\\Project 2: Thread-Safe Malloc}
+\author{Jingheng Huan\\Email: jh730@duke.edu}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Dynamic memory management is important in system performance and reliability. In Project~2, I extend my Project~1 to support multi-threaded environments by implementing two thread-safe versions of \texttt{malloc} and \texttt{free}. One version uses a lock-based synchronization scheme while the other minimizes locking by employing thread-local storage, with the only exception being a lock for the \texttt{sbrk()} call. Both implementations use a best-fit allocation strategy. The primary goals of this project are to ensure the correctness of memory allocation and deallocation in concurrent and to compare the allocation efficiency between a fully lock-based implementation and a mostly non-locking implementation.
+
+\section{Implementation Description}
+The implementation is divided into two versions. The locking version, consisting of the functions \texttt{ts\_malloc\_lock} and \texttt{ts\_free\_lock}, uses a global mutex to protect shared data structures during memory operations. In contrast, the non-locking version, which comprises \texttt{ts\_malloc\_nolock} and \texttt{ts\_free\_nolock}, employs thread-local free lists so that each thread manages its own free memory, thereby reducing contention. The only exception is the \texttt{sbrk()} call, which is protected by a mutex since it is not thread-safe.
+
+In my implementation each allocated memory block is preceded by a metadata structure that stores the block's size, a flag indicating whether the block is free, and pointers to the next and previous free blocks in a doubly-linked list. The locking version utilizes a global free list maintained by pointers such as \texttt{global\_first\_free} and \texttt{global\_last\_free}, and these are protected by the mutex \texttt{global\_lock}. Meanwhile, the non-locking version uses thread-local free lists managed via thread-local storage, which minimizes the need for locks during allocation and deallocation operations.
+
+Both versions implement a best-fit allocation strategy. Initially, the free list is traversed to identify the smallest block that can satisfy the allocation request. If a suitable block is found, it is reused; if the block is larger than necessary, it is split into an allocated block and a smaller free block. In cases where no suitable block exists, the heap is extended using \texttt{sbrk()}. The locking version acquires a global mutex before any access or modification of the global free list, ensuring that all critical sections that update shared variables and manipulate the free list are protected. On the other hand, the non-locking version relies on thread-local storage for most operations, with only the \texttt{sbrk()} call being protected by a dedicated mutex.
+
+The function \texttt{ts\_malloc\_lock} takes a size parameter and begins by locking the global mutex before searching the global free list using the best-fit strategy. If a free block is found, it is reused—possibly splitting the block if needed; otherwise, a new block is allocated via \texttt{sbrk()}. Once the allocation is complete, the mutex is unlocked and the pointer to the allocated memory is returned. The corresponding function \texttt{ts\_free\_lock} locks the global mutex, marks the block as free, reinserts it into the global free list, and coalesces adjacent free blocks to reduce fragmentation before unlocking the mutex. In contrast, the \texttt{ts\_malloc\_nolock} function operates by searching the thread-local free list for a suitable free block and, if none is found, calling \texttt{sbrk()} (under lock) to extend the heap. Similarly, \texttt{ts\_free\_nolock} marks the block as free, reinserts it into the thread-local free list, and coalesces adjacent free blocks as needed.
+
+\section{Experimental Results}
+Several test programs were run to verify both the correctness and performance of the locking and non-locking implementations. In both versions, all tests confirmed that there were no overlapping allocated regions, indicating that the memory allocation and deallocation mechanisms are thread-safe and free from race conditions. The measurement test for the locking version reported an execution time of 0.129794 seconds and a data segment size of 44,786,560 bytes. The measurement test for the non-locking version reported an execution time of 0.143708 seconds and a data segment size of 42,927,712 bytes.
+
+\begin{table}[h]
+    \centering
+    \caption{Performance Comparison Between Locking and Non-locking Versions}
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        Version                   & Execution Time (s) & Data Segment Size (bytes) \\ \midrule
+        Locking      & 0.129794             & 44,786,560              \\
+        Non-locking  & 0.143708             & 42,927,712              \\ \bottomrule
+    \end{tabular}
+    \label{tab:comparison}
+\end{table}
+
+\section{Analysis and Trade-offs}
+The locking version offers the advantage of simplicity in design and strong consistency since all critical sections are serialized using a global mutex. This ensures correctness, but the global lock can become a bottleneck in highly concurrent environments, leading to increased overhead as all threads must wait for the lock even when their operations do not conflict. In contrast, the non-locking version reduces contention by allowing each thread to manage its own free list through thread-local storage. This design significantly improves scalability under high thread concurrency and minimizes lock overhead. However, it also introduces additional complexity in managing multiple free lists and may lead to increased fragmentation if the coalescing of free blocks is not optimal.
+
+\section{Conclusion}
+In this project, two thread-safe memory allocators were successfully implemented. The lock-based version guarantees correctness through comprehensive locking but can become a performance bottleneck in highly concurrent environments. The non-locking version leverages thread-local storage to reduce contention and improve scalability, although this approach may lead to higher fragmentation if free blocks are not optimally coalesced. Future work may explore further optimization of the coalescing strategies in the non-locking version to reduce fragmentation while maintaining high performance in multi-threaded environments.
+
+\end{document}
