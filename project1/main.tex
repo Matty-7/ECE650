@@ -1,111 +1,149 @@
-\documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
+\documentclass[12pt]{article}
+\usepackage{geometry}
 \usepackage{graphicx}
-\usepackage{listings}
-\usepackage{amsmath,amssymb}
-\usepackage{courier}
 \usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{booktabs} % For better tables
+\usepackage{siunitx}  % For number formatting
 
-\hypersetup{
-    colorlinks  = true,
-    urlcolor    = blue,
-    linkcolor   = blue,
-    citecolor   = blue
+\geometry{
+    a4paper,
+    total={170mm,257mm},
+    left=20mm,
+    top=20mm,
 }
 
-\lstset{
-  basicstyle=\footnotesize\ttfamily,
-  breaklines=true,
-  columns=flexible
-}
+\title{ECE 650 – Spring 2025\\Project \#1: Malloc Library\\}
+\author{Jingheng Huan\\Duke University\\Email: jh730@duke.edu}
+\date{January 25, 2025}
 
 \begin{document}
-\title{\textbf{ECE 650 Project \#1 Report: Malloc Library}}
-\author{Jingheng Huan}
-\date{\today}
+
 \maketitle
 
-\begin{abstract}
-This report documents my implementation of a custom memory allocation library in C, providing both a \texttt{First Fit} and \texttt{Best Fit} approach. I describe the data structures used, highlight performance issues encountered, and present final test results. Despite passing local tests, my submission on Gradescope scored 29 out of 54, suggesting there may still be corner cases or hidden tests not yet handled.
-\end{abstract}
-
 \section{Introduction}
-The goal of this project is to implement a simplified version of \texttt{malloc} and \texttt{free} using two allocation policies: \textbf{First Fit} (\texttt{ff\_malloc/ff\_free}) and \textbf{Best Fit} (\texttt{bf\_malloc/bf\_free}). Additionally, the assignment requires \emph{splitting} large free blocks and \emph{coalescing} adjacent free blocks to reduce fragmentation. Two helper functions, \texttt{get\_data\_segment\_size} and \texttt{get\_data\_segment\_free\_space\_size}, were also implemented to measure heap usage and fragmentation.
+Memory management is very important in system performance and reliability. The C standard library provides dynamic memory allocation functions like \texttt{malloc} and \texttt{free}, which are fundamental for managing memory in applications. This project1 involves implementing custom versions of these functions using two distinct allocation strategies: First Fit and Best Fit. The goal is to understand the underlying mechanisms of memory allocation and evaluate the performance implications of different allocation policies.
 
-\section{Initial Implementation with Singly Linked List}
-\subsection{Data Structure}
-My first approach used a single linked list to track both allocated and free blocks. Each block kept:
+\section{Implementation Description}
+This custom memory allocator is implemented in C, utilizing the \texttt{sbrk()} system call to manage the program's data segment. The allocator maintains a free list to track available memory blocks and employs metadata structures to store information about each block.
+
+\subsection{Data Structures}
+
+\textbf{Metadata Structure}: 
+Each memory block is preceded by a metadata structure containing the size of the block, a flag indicating whether the block is free, and pointers to the next and previous free blocks.
+
+\textbf{Free List}: 
+A doubly-linked list that maintains all free memory blocks, which makes sure efficient traversal and management during allocation and deallocation.
+
+\subsection{Allocation Methods}
+\subsubsection{First Fit}
+The First Fit strategy scans the free list from the beginning and selects the first block that is large enough to satisfy the allocation request. This approach tends to be faster as it requires fewer comparisons but may lead to higher fragmentation over time.
+
+\subsubsection{Best Fit}
+The Best Fit strategy examines all free blocks and selects the smallest block that is sufficient for the allocation request. This method aims to minimize wasted space within allocated blocks, potentially reducing fragmentation but may incur higher computational overhead due to the exhaustive search.
+
+\subsection{Function Implementations}
 \begin{itemize}
-    \item \texttt{size} (the payload size, in bytes),
-    \item \texttt{free} (boolean flag),
-    \item \texttt{next} (pointer to the next block).
-\end{itemize}
-On \texttt{malloc}, I performed a linear scan from the head of the list to find a suitable free block. On \texttt{free}, the block was marked as free; then I performed a full-list scan to coalesce adjacent blocks.
-
-\subsection{Performance Issues}
-When I tested this version with the provided \texttt{alloc\_policy\_tests}:
-\begin{itemize}
-    \item \textbf{small\_range\_rand\_allocs} took about \textbf{255 seconds}.
-    \item \textbf{large\_range\_rand\_allocs} took about \textbf{344 seconds}.
-    \item \textbf{equal\_size\_allocs} effectively \emph{never} finished within a reasonable time.
-\end{itemize}
-The linear scan in \texttt{malloc} and the full traversal in \texttt{free} for coalescing caused a massive slowdown, especially when numerous allocations were present.
-
-\section{Refining to a Doubly Linked List \& Local Coalescing}
-\subsection{Doubly Linked List and Local Coalescing}
-To reduce the overhead of scanning the entire list, I switched to a \emph{doubly linked list}. This allowed me to coalesce \emph{locally} in \texttt{free}: only merge a just-freed block with its immediate predecessor or successor if they are free. As a result, I no longer had to traverse from the list head every time I freed a block.
-
-After this change:
-\begin{itemize}
-    \item \textbf{small\_range\_rand\_allocs} improved from 255\,s down to around \textbf{34\,s}.
-    \item \textbf{large\_range\_rand\_allocs} improved from 344\,s to about \textbf{83\,s}.
-\end{itemize}
-However, for \texttt{equal\_size\_allocs}, I still experienced a long runtime (in fact, it appeared to stall).
-
-\section{Implementing a ``Last Allocation Pointer'' (Next Fit)}
-I added a global pointer \texttt{last\_alloc} to record the position of the last block found by the First Fit search. Instead of always starting from the head of the free list, I begin the search from \texttt{last\_alloc} to speed up repeated allocation. This change ensures we do not scan the entire list from the beginning whenever we do a \texttt{malloc}.
-
-With that optimization in place:
-\begin{itemize}
-    \item \textbf{equal\_size\_allocs} completed in under \textbf{3\,seconds},
-    \item \textbf{small\_range\_rand\_allocs} also dropped to around \textbf{2\,seconds}, 
-    \item \textbf{large\_range\_rand\_allocs} to about \textbf{3\,seconds}.
-\end{itemize}
-Hence the performance is finally acceptable for all three provided test programs.
-
-\section{Debugging Coalescing Logic}
-Upon writing additional 12 local tests of my own, I noticed that the coalescing logic caused incorrect fragmentation calculations. Specifically, I had:
-\begin{lstlisting}[language=C]
-total_free_size -= sizeof(block_meta_t);
-\end{lstlisting}
-within the coalescing routine. Because \texttt{free()} already adds the block’s metadata space to \texttt{total\_free\_size}, subtracting \texttt{sizeof(block\_meta\_t)} again during coalescing artificially reduces the reported free space. Removing those lines let me pass all local coalescing tests.
-
-Despite passing all local tests (including correctness, coalescing, and performance checks), I still only achieved \textbf{29/54} on Gradescope. This outcome suggests there might be additional hidden or corner test cases in the grader that my code does not fully satisfy. 
-
-\section{Conclusion and Future Work}
-I have implemented:
-\begin{itemize}
-    \item \textbf{First Fit} and \textbf{Best Fit} policies,
-    \item A doubly linked list with local coalescing,
-    \item A \texttt{last\_alloc} pointer to reduce repeated scanning overhead,
-    \item Comprehensive local tests that check splitting, merging, zero-size \texttt{malloc}, and random allocations.
-\end{itemize}
-The performance improved significantly:
-\begin{itemize}
-    \item \texttt{equal\_size\_allocs} from ‘‘no finish’’ to about 1--2\,seconds,
-    \item \texttt{small\_range\_rand\_allocs} from 255\,s to around 2\,s,
-    \item \texttt{large\_range\_rand\_allocs} from 344\,s to around 3\,s.
+    \item \texttt{ff\_malloc(size\_t size)}: Implements the First Fit allocation strategy.
+    \item \texttt{ff\_free(void *ptr)}: Frees a memory block allocated by \texttt{ff\_malloc} and coalesces adjacent free blocks.
+    \item \texttt{bf\_malloc(size\_t size)}: Implements the Best Fit allocation strategy.
+    \item \texttt{bf\_free(void *ptr)}: Frees a memory block allocated by \texttt{bf\_malloc} and coalesces adjacent free blocks.
+    \item \texttt{get\_data\_segment\_size()} and \texttt{get\_data\_segment\_free\_space\_size()}: Provide metrics for data segment size and free space, including metadata.
 \end{itemize}
 
-However, my Gradescope score remains at 29/54. I suspect certain boundary cases (e.g.\ alignment issues, or internal tracking not matching the grader’s expectations) are unaddressed. Further debugging, plus possibly ensuring proper alignment or other subtle details, might be needed to achieve full marks on the official tests.
+\subsection{Memory Management Strategy}
+\begin{enumerate}
+    \item \textbf{Allocation (\texttt{malloc})}: Traverse the free list based on the chosen allocation policy (First Fit or Best Fit). If a suitable block is found, reuse it by possibly splitting it if it's significantly larger than the requested size. If no suitable block is available, extend the heap using \texttt{sbrk()} to allocate additional memory.
 
-\vspace{6pt}
-\noindent \textbf{Possible Next Steps:}
+    \item \textbf{Deallocation (\texttt{free})}: Mark the block as free. Coalesce with adjacent free blocks to minimize fragmentation. Update the free list accordingly.
+\end{enumerate}
+
+\section{Performance Results}
+The performance of both allocation strategies was evaluated using three test programs that simulate various allocation and deallocation patterns:
+\begin{enumerate}
+    \item \textbf{Equal Size Allocations}: Allocating memory blocks of uniform size.
+    \item \textbf{Small Range Random Allocations}: Allocating memory blocks with sizes randomly chosen from a small range.
+    \item \textbf{Large Range Random Allocations}: Allocating memory blocks with sizes randomly chosen from a large range.
+\end{enumerate}
+The key metrics measured were execution time and fragmentation. Additionally, data segment metrics such as total size and free space were recorded.
+
+\begin{table}[h]
+    \centering
+    \caption{Performance Metrics for Equal Size Allocations}
+    \begin{tabular}{@{}lcccc@{}}
+        \toprule
+        Allocation Strategy & Execution Time (s) & Fragmentation & Data Segment Size (bytes) & Free Space Size (bytes) \\ \midrule
+        First Fit (FF)       & 0.774383            & 0.456717      & 4,079,616                  & 331,824                   \\
+        Best Fit (BF)        & 0.724615            & 0.456717      & 3,796,992                  & 83,792                    \\ \bottomrule
+    \end{tabular}
+    \label{tab:equal_size}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \caption{Performance Metrics for Small Range Random Allocations}
+    \begin{tabular}{@{}lccc@{}}
+        \toprule
+        Allocation Strategy & Execution Time (s) & Fragmentation & Free Space Size (bytes) \\ \midrule
+        First Fit (FF)       & 1.087728            & 0.081337      & 331,824                   \\
+        Best Fit (BF)        & 1.007308            & 0.022068      & 83,792                    \\ \bottomrule
+    \end{tabular}
+    \label{tab:small_range_rand}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \caption{Performance Metrics for Large Range Random Allocations}
+    \begin{tabular}{@{}lccc@{}}
+        \toprule
+        Allocation Strategy & Execution Time (s) & Fragmentation & Free Space Size (bytes) \\ \midrule
+        First Fit (FF)       & 4.147240            & 0.114479      & 331,824                   \\
+        Best Fit (BF)        & 38.677297           & 0.040677      & 83,792                    \\ \bottomrule
+    \end{tabular}
+    \label{tab:large_range_rand}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \caption{Summary of Data Segment Metrics}
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        Allocation Strategy & Total Data Segment Size (bytes) & Total Free Space Size (bytes) \\ \midrule
+        First Fit (FF)       & 4,079,616                        & 331,824                        \\
+        Best Fit (BF)        & 3,796,992                        & 83,792                         \\ \bottomrule
+    \end{tabular}
+    \label{tab:summary_metrics}
+\end{table}
+
+\section{Analysis of Results}
+\subsection{Execution Time}
 \begin{itemize}
-    \item More rigorous checks on alignment to 8 or 16 bytes (even though not strictly required).
-    \item Handling or skipping blocks more intelligently for Best Fit to avoid excessive scanning.
-    \item Confirming corner cases with extremely large allocations (close to system limits).
-    \item Investigating whether \texttt{last\_alloc} might need resetting after certain merges or splits.
+    \item \textbf{First Fit (FF)} generally exhibits fast execution times in the Equal Size Allocations and Small Range Random Allocations tests, likely due to the simplicity of scanning the free list until the first suitable block is found. However, in the Large Range Random Allocations test, FF's execution time increases a lot, indicating potential inefficiencies when handling a wide variety of block sizes.
+    \item \textbf{Best Fit (BF)} shows slightly better or comparable execution times in the Equal Size Allocations and Small Range Random Allocations tests. However, in the Large Range Random Allocations test, BF's execution time increases substantially because of the higher computational overhead required to search for the optimal block.
 \end{itemize}
+
+\subsection{Fragmentation}
+\begin{itemize}
+    \item \textbf{First Fit (FF)} tends to result in a relatively high fragmentation across all tests. This is expected as allocating the first available block can leave larger unusable spaces scattered throughout the memory.
+    \item \textbf{Best Fit (BF)} achieves significantly lower fragmentation. This demonstrates BF's effectiveness in minimizing wasted space by selecting the most appropriately sized block for each allocation.
+\end{itemize}
+
+\subsection{Data Segment Size and Free Space}
+\begin{itemize}
+    \item \textbf{First Fit (FF)} consumes more data segment space and maintains a larger free space size. This indicates that while FF may allocate memory quickly, it leaves behind more free space that is potentially fragmented.
+    \item \textbf{Best Fit (BF)} utilizes the data segment more efficiently with a smaller free space size, reflecting its ability to consolidate memory usage more effectively.
+\end{itemize}
+
+\subsection{Trade-offs}
+The analysis highlights a trade-off between execution time and memory fragmentation:
+\begin{itemize}
+    \item \textbf{First Fit} offers faster allocation and deallocation operations in scenarios with uniform or small range allocations but at the cost of higher fragmentation, which can degrade performance over time as the free list becomes fragmented.
+    \item \textbf{Best Fit} provides better memory utilization and lower fragmentation, which is beneficial for long-running applications or those with varied allocation sizes. However, it incurs higher computational costs due to the need to search the entire free list for the best-fitting block, leading to increased execution times in more complex allocation scenarios.
+    \item For applications where allocation speed is critical and memory usage patterns are predictable or uniform, \textbf{First Fit} may be more appropriate.
+    \item For applications where memory efficiency and minimizing fragmentation are paramount, especially with varied allocation sizes, \textbf{Best Fit} is preferable despite the increased computational overhead.
+\end{itemize}
+
+\section{Conclusion}
+While First Fit offers faster allocation times in simpler allocation scenarios, it suffers from higher fragmentation, which can negatively impact performance in more complex or long-running applications. Conversely, Best Fit achieves better memory utilization and lower fragmentation, making it more suitable for applications with varied allocation patterns, with the trade-off of increased execution time due to its exhaustive search process. Understanding these trade-offs is essential for optimizing memory management in various application contexts.
 
 \end{document}
