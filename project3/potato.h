@@ -4,12 +4,12 @@
 #include <cstring>
 
 class Potato {
-    public:
-    int num_hops;
-    int count;
-    int path[512];
+ public:
+  int num_hops;
+  int count;
+  int path[512];
 
-    Potato();
+  Potato();
 };
 
 #endif
