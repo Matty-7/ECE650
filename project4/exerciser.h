@@ -1,16 +1,11 @@
-#include <iostream>
-#include <pqxx/pqxx>
-
-#include "query_funcs.h"
-
-using namespace std;
-using namespace pqxx;
-
 #ifndef _EXERCISER_
 #define _EXERCISER_
 
+#include <pqxx/pqxx>
 
+using namespace pqxx;
+
+// Called after all tables are created and data loaded.
 void exercise(connection *C);
 
-
-#endif //_EXERCISER_       
+#endif //_EXERCISER_
