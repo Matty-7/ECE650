@@ -9,7 +9,6 @@ using std::fixed;
 using std::setprecision;
 using std::stringstream;
 
-// Add a player
 void add_player(connection *C, int team_id, int jersey_num,
                 string first_name, string last_name,
                 int mpg, int ppg, int rpg, int apg,
@@ -26,7 +25,6 @@ void add_player(connection *C, int team_id, int jersey_num,
   W.commit();
 }
 
-// Add a team
 void add_team(connection *C, string name, int state_id,
               int color_id, int wins, int losses) {
   work W(*C);
@@ -39,7 +37,6 @@ void add_team(connection *C, string name, int state_id,
   W.commit();
 }
 
-// Add a state
 void add_state(connection *C, string name) {
   work W(*C);
   string sql = "INSERT INTO STATE (NAME) VALUES (" + W.quote(name) + ");";
@@ -47,7 +44,6 @@ void add_state(connection *C, string name) {
   W.commit();
 }
 
-// Add a color
 void add_color(connection *C, string name) {
   work W(*C);
   string sql = "INSERT INTO COLOR (NAME) VALUES (" + W.quote(name) + ");";

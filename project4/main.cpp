@@ -24,7 +24,7 @@ static void dropTable(connection *C, const string &tableName) {
   runSQL(C, oss.str());
 }
 
-// Create four tables directly in code
+// Create four tables
 static void createTables(connection *C) {
   // STATE
   runSQL(C,
@@ -89,7 +89,7 @@ static void loadColor(connection *C, const string &fname) {
   string line;
   while (getline(fin, line)) {
     // Format: color_id color_name
-    // e.g. "1 LightBlue"
+    // "1 LightBlue"
     stringstream ss(line);
     int cid; 
     string cname;
@@ -170,31 +170,32 @@ int main(int argc, char *argv[]) {
       cerr << "Can't open database ACC_BBALL" << endl;
       return 1;
     }
+
+    // Drop existing tables if any
+    dropTable(C, "PLAYER");
+    dropTable(C, "TEAM");
+    dropTable(C, "STATE");
+    dropTable(C, "COLOR");
+
+    // Create fresh tables
+    createTables(C);
+
+    // Load data from text files
+    loadState(C,  "state.txt");
+    loadColor(C,  "color.txt");
+    loadTeam(C,   "team.txt");
+    loadPlayer(C, "player.txt");
+
+    // Run queries
+    exercise(C);
+    
+    delete C;  // close the connection
+    return 0;
   } catch (const std::exception &e) {
     cerr << e.what() << endl;
+    if (C) {
+      delete C;
+    }
     return 1;
   }
-
-  // Drop existing tables if any
-  dropTable(C, "PLAYER");
-  dropTable(C, "TEAM");
-  dropTable(C, "STATE");
-  dropTable(C, "COLOR");
-
-  // Create fresh tables
-  createTables(C);
-
-  // Load data from text files
-  loadState(C,  "state.txt");
-  loadColor(C,  "color.txt");
-  loadTeam(C,   "team.txt");
-  loadPlayer(C, "player.txt");
-
-  // Run queries
-  exercise(C);
-
-  // Close
-  C->disconnect();
-  delete C;
-  return 0;
 }
