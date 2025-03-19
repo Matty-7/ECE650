@@ -1,0 +1,80 @@
+# compiled files
+test
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.so
+*.dll
+*.dylib
+*.lib
+*.la
+*.lo
+
+# C/C++ generated dependency files
+*.d
+
+# debug information
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Python related files (extra credit part)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+orm_env/
+
+# database related
+*.db
+*.sql
+*.sqlite
+*.sqlite3
+*.dump
+
+# IDE/editor related
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+*.sublime-workspace
+*.sublime-project
+.project
+.cproject
+.settings/
+
+# project specific files
+*.log
+acc_bball
+core.*
+vgcore.*
+
+# zip files
+hw4_database.zip
+proj4_extra_*.zip
+
+# temp files
+temp/
+tmp/
