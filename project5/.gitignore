@@ -1,0 +1,82 @@
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build directories
+build/
+bin/
+obj/
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+.cmd
+
+# Project specific files
+*.cmd
+.Module.symvers.cmd
+.modules.order.cmd
+.sneaky_mod.ko.cmd
+.sneaky_mod.mod.cmd
+.sneaky_mod.mod.o.cmd
+.sneaky_mod.o.cmd
+Module.symvers
+modules.order
+sneaky_mod.ko
+sneaky_mod.mod
+sneaky_mod.mod.o
+sneaky_mod.o
+sneaky_mod.mod.c
+
