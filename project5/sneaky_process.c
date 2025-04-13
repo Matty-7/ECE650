@@ -34,6 +34,7 @@ void read_input(){
         }
     }
 }
+
 void unload_sneaky_module() {
     if (system("rmmod sneaky_mod") != 0) {
         fprintf(stderr, "Failed to unload module\n");
